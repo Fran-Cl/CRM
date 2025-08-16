@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Pinturas Clavel - Sistema de Semáforo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #2d3c8b;
+            color: white;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .logo {
+            width: 50px;
+            height: 50px;
+            background: #f4d03f;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+            color: #2d3c8b;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            min-height: 600px;
+        }
+        
+        .sidebar {
+            background: #f8f9fa;
+            padding: 20px;
+            border-right: 1px solid #e9ecef;
+        }
+        
+        .main-content {
+            padding: 20px;
+        }
+        
+        .metrics-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        .metric-card.verde { background: linear-gradient(45deg, #27ae60, #2ecc71); }
+        .metric-card.amarillo { background: linear-gradient(45deg, #f39c12, #f1c40f); }
+        .metric-card.rojo { background: linear-gradient(45deg, #e74c3c, #c0392b); }
+        .metric-card.total { background: linear-gradient(45deg, #3498db, #2980b9); }
+        
+        .metric-card h3 {
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+        
+        .metric-card p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .search-filters {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .search-input, .filter-select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .search-input {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .clients-table {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .table-header {
+            background: #2d3c8b;
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+        }
+        
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .table th, .table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            color: white;
+        }
+        
+        .status-verde { background: #27ae60; }
+        .status-amarillo { background: #f39c12; }
+        .status-rojo { background: #e74c3c; }
+        
+        .action-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-right: 5px;
+        }
+        
+        .btn-contact { background: #3498db; color: white; }
+        .btn-visit { background: #27ae60; color: white; }
+        .btn-call { background: #f39c12; color: white; }
+        
+        .sidebar h3 {
+            color: #2d3c8b;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .filter-section {
+            margin-bottom: 25px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .checkbox-item input {
+            margin: 0;
+        }
+        
+        .checkbox-item label {
+            font-size: 13px;
+            color: #495057;
+        }
+        
+        .quick-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .quick-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .quick-btn.primary {
+            background: #2d3c8b;
+            color: white;
+        }
+        
+        .quick-btn.secondary {
+            background: white;
+            color: #2d3c8b;
+            border: 2px solid #2d3c8b;
+        }
+        
+        .quick-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .client-detail-popup {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        
+        .popup-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .popup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .close-popup {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .client-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .info-item {
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        
+        .info-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            font-weight: 600;
+            color: #2d3c8b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">PC</div>
+            <div>
+                <h1>CRM Pinturas Clavel</h1>
+                <p>Sistema de Gestión de Clientes - Semáforo de Priorización</p>
+            </div>
+        </div>
+        
+        <div class="dashboard">
+            <div class="sidebar">
+                <div class="filter-section">
+                    <h3>Filtros Rápidos</h3>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="filter-verde" onchange="filterByColor('verde')">
+                            <label for="filter-verde">Clientes Verdes (45)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="filter-amarillo" onchange="filterByColor('amarillo')">
+                            <label for="filter-amarillo">Clientes Amarillos (9)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="filter-rojo" onchange="filterByColor('rojo')">
+                            <label for="filter-rojo">Clientes Rojos (73)</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="filter-section">
+                    <h3>Segmentos</h3>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="desarrollo">
+                            <label for="desarrollo">Desarrollo</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="nucleo">
+                            <label for="nucleo">Núcleo</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="explotacion">
+                            <label for="explotacion">Explotación</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="filter-section">
+                    <h3>Promotores</h3>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="arcelio">
+                            <label for="arcelio">Arcelio Mercado</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="jesus">
+                            <label for="jesus">Jesús Montero</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="jose">
+                            <label for="jose">José Avendaño</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="marco">
+                            <label for="marco">Marco Antonio</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="main-content">
+                <div class="metrics-cards">
+                    <div class="metric-card verde">
+                        <h3>45</h3>
+                        <p>Clientes Verdes</p>
+                    </div>
+                    <div class="metric-card amarillo">
+                        <h3>9</h3>
+                        <p>Clientes Amarillos</p>
+                    </div>
+                    <div class="metric-card rojo">
+                        <h3>73</h3>
+                        <p>Clientes Rojos</p>
+                    </div>
+                    <div class="metric-card total">
+                        <h3>127</h3>
+                        <p>Total Cartera</p>
+                    </div>
+                </div>
+                
+                <div class="quick-actions">
+                    <button class="quick-btn primary" onclick="showNewContactForm()">+ Nuevo Cliente</button>
+                    <button class="quick-btn secondary" onclick="exportToExcel()">Exportar Excel</button>
+                    <button class="quick-btn secondary" onclick="bulkWhatsApp()">WhatsApp Masivo</button>
+                </div>
+                
+                <div class="search-filters">
+                    <input type="text" class="search-input" placeholder="Buscar por nombre, teléfono o código..." onkeyup="filterTable()">
+                    <select class="filter-select" onchange="filterByStatus()">
+                        <option value="">Todos los estados</option>
+                        <option value="verde">Verde</option>
+                        <option value="amarillo">Amarillo</option>
+                        <option value="rojo">Rojo</option>
+                    </select>
+                    <select class="filter-select" onchange="filterByPromoter()">
+                        <option value="">Todos los promotores</option>
+                        <option value="arcelio">Arcelio Mercado</option>
+                        <option value="jesus">Jesús Montero</option>
+                        <option value="jose">José Avendaño</option>
+                        <option value="marco">Marco Antonio</option>
+                    </select>
+                </div>
+                
+                <div class="clients-table">
+                    <div class="table-header">
+                        Lista de Clientes - Priorización por Semáforo
+                    </div>
+                    <table class="table" id="clientsTable">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Cliente</th>
+                                <th>Segmento</th>
+                                <th>Estado</th>
+                                <th>Días</th>
+                                <th>Última Compra</th>
+                                <th>Promotor</th>
+                                <th>SLA</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientsTableBody">
+                            <!-- Los datos se cargarán aquí -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Popup para detalles del cliente -->
+    <div class="client-detail-popup" id="clientDetailPopup">
+        <div class="popup-content">
+            <div class="popup-header">
+                <h2 id="popupTitle">Detalle del Cliente</h2>
+                <button class="close-popup" onclick="closeClientDetail()">&times;</button>
+            </div>
+            <div class="client-info" id="clientInfo">
+                <!-- Se llenará dinámicamente -->
+            </div>
+            <div class="action-history">
+                <h3>Historial de Interacciones</h3>
+                <div id="interactionHistory">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Datos de ejemplo basados en tu dashboard
+        let clientsData = [
+            {
+                codigo: '812',
+                nombre: 'IMCRUZ CONSTRUCTORA SRL',
+                segmento: 'MARGINAL',
+                estado: 'amarillo',
+                diasSinCompra: 58,
+                ultimaCompra: '$2,450',
+                fechaUltimaCompra: '2024-10-19',
+                promotor: 'Arcelio Mercado',
+                sla: 2,
+                telefono: '70123456',
+                email: 'imcruz@email.com',
+                direccion: 'Av. Banzer km 9',
+                productosComprados: ['Pintura Preparada Blanco', 'Catalizador Extra Rápido'],
+                interacciones: [
+                    {fecha: '2024-12-10', tipo: 'WhatsApp', descripcion: 'Consulta por promociones navideñas'},
+                    {fecha: '2024-11-15', tipo: 'Visita', descripcion: 'Presentación catálogo 2025'}
+                ]
+            },
+            {
+                codigo: '663',
+                nombre: 'CONSTRUCTORA BOLIVIANA LTDA',
+                segmento: 'DESARROLLO',
+                estado: 'rojo',
+                diasSinCompra: 113,
+                ultimaCompra: '$890',
+                fechaUltimaCompra: '2024-08-25',
+                promotor: 'Jesús Montero',
+                sla: 5,
+                telefono: '71234567',
+                email: 'constructora@email.com',
+                direccion: 'Zona Sur, Calle 21',
+                productosComprados: ['Masilla Plus Evolution', 'Thinner Duco'],
+                interacciones: [
+                    {fecha: '2024-12-01', tipo: 'Llamada', descripcion: 'Sin respuesta - intentar nuevamente'},
+                    {fecha: '2024-11-20', tipo: 'WhatsApp', descripcion: 'Mensaje de reactivación enviado'}
+                ]
+            },
+            {
+                codigo: '194',
+                nombre: 'METALÚRGICA DEL SUR SRL',
+                segmento: 'NÚCLEO',
+                estado: 'amarillo',
+                diasSinCompra: 27,
+                ultimaCompra: '$5,670',
+                fechaUltimaCompra: '2024-11-20',
+                promotor: 'José Avendaño',
+                sla: 1,
+                telefono: '72345678',
+                email: 'metalurgica@email.com',
+                direccion: 'Parque Industrial',
+                productosComprados: ['Verniz V311 750ml', 'Pintura Preparada Pol Perla'],
+                interacciones: [
+                    {fecha: '2024-12-15', tipo: 'Visita', descripcion: 'Reunión programada - presentar nuevos productos'},
+                    {fecha: '2024-12-01', tipo: 'Email', descripcion: 'Cotización enviada - esperando respuesta'}
+                ]
+            },
+            {
+                codigo: '441',
+                nombre: 'TALLER MECÁNICO CENTRAL',
+                segmento: 'NÚCLEO',
+                estado: 'amarillo',
+                diasSinCompra: 22,
+                ultimaCompra: '$1,230',
+                fechaUltimaCompra: '2024-11-25',
+                promotor: 'Marco Antonio',
+                sla: 3,
+                telefono: '73456789',
+                email: 'taller@email.com',
+                direccion: 'Av. América, Zona Centro',
+                productosComprados: ['Colador de Pintura', 'Masilla Plástica Plus'],
+                interacciones: [
+                    {fecha: '2024-12-12', tipo: 'WhatsApp', descripcion: 'Consulta por disponibilidad de productos'},
+                    {fecha: '2024-11-28', tipo: 'Visita', descripcion: 'Entrega de pedido - cliente satisfecho'}
+                ]
+            },
+            {
+                codigo: '575',
+                nombre: 'AUTOMOTRIZ LA PAZ LTDA',
+                segmento: 'NÚCLEO',
+                estado: 'amarillo',
+                diasSinCompra: 14,
+                ultimaCompra: '$3,450',
+                fechaUltimaCompra: '2024-12-03',
+                promotor: 'Arcelio Mercado',
+                sla: 1,
+                telefono: '74567890',
+                email: 'automotriz@email.com',
+                direccion: 'Av. 6 de Agosto',
+                productosComprados: ['Catalizador Rápido P6000', 'Verniz Unix 150 HS'],
+                interacciones: [
+                    {fecha: '2024-12-16', tipo: 'Llamada', descripcion: 'Seguimiento post-venta - todo OK'},
+                    {fecha: '2024-12-03', tipo: 'Venta', descripcion: 'Venta exitosa - combo completo'}
+                ]
+            }
+        ];
+        
+        let filteredData = [...clientsData];
+        
+        function renderTable() {
+            const tbody = document.getElementById('clientsTableBody');
+            tbody.innerHTML = '';
+            
+            filteredData.forEach(client => {
+                const row = tbody.insertRow();
+                const slaUrgency = client.sla > 3 ? 'style="background: #ffebee;"' : '';
+                
+                row.innerHTML = `
+                    <td>${client.codigo}</td>
+                    <td><strong>${client.nombre}</strong><br><small>${client.telefono}</small></td>
+                    <td><span class="badge">${client.segmento}</span></td>
+                    <td><span class="status-badge status-${client.estado}">${client.estado.toUpperCase()}</span></td>
+                    <td ${slaUrgency}>${client.diasSinCompra} días</td>
+                    <td>${client.ultimaCompra}<br><small>${client.fechaUltimaCompra}</small></td>
+                    <td>${client.promotor}</td>
+                    <td ${slaUrgency}>SLA: ${client.sla}d</td>
+                    <td>
+                        <button class="action-btn btn-contact" onclick="openWhatsApp('${client.telefono}')">WhatsApp</button>
+                        <button class="action-btn btn-call" onclick="makeCall('${client.telefono}')">Llamar</button>
+                        <button class="action-btn btn-visit" onclick="showClientDetail('${client.codigo}')">Ver Detalle</button>
+                    </td>
+                `;
+            });
+        }
+        
+        function filterTable() {
+            const searchTerm = document.querySelector('.search-input').value.toLowerCase();
+            filteredData = clientsData.filter(client => 
+                client.nombre.toLowerCase().includes(searchTerm) ||
+                client.codigo.includes(searchTerm) ||
+                client.telefono.includes(searchTerm)
+            );
+            renderTable();
+        }
+        
+        function filterByColor(color) {
+            const checkbox = document.getElementById(`filter-${color}`);
+            if (checkbox.checked) {
+                filteredData = clientsData.filter(client => client.estado === color);
+            } else {
+                filteredData = [...clientsData];
+            }
+            
+            // Desmarcar otros checkboxes
+            ['verde', 'amarillo', 'rojo'].forEach(c => {
+                if (c !== color) {
+                    document.getElementById(`filter-${c}`).checked = false;
+                }
+            });
+            
+            renderTable();
+        }
+        
+        function filterByStatus() {
+            const select = document.querySelector('.search-filters .filter-select');
+            const status = select.value;
+            if (status) {
+                filteredData = clientsData.filter(client => client.estado === status);
+            } else {
+                filteredData = [...clientsData];
+            }
+            renderTable();
+        }
+        
+        function showClientDetail(codigo) {
+            const client = clientsData.find(c => c.codigo === codigo);
+            if (!client) return;
+            
+            document.getElementById('popupTitle').textContent = `Cliente: ${client.nombre}`;
+            
+            const clientInfo = document.getElementById('clientInfo');
+            clientInfo.innerHTML = `
+                <div class="info-item">
+                    <div class="info-label">Código</div>
+                    <div class="info-value">${client.codigo}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Segmento</div>
+                    <div class="info-value">${client.segmento}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Estado Actual</div>
+                    <div class="info-value">
+                        <span class="status-badge status-${client.estado}">${client.estado.toUpperCase()}</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Promotor Asignado</div>
+                    <div class="info-value">${client.promotor}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Teléfono</div>
+                    <div class="info-value">${client.telefono}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Email</div>
+                    <div class="info-value">${client.email}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Última Compra</div>
+                    <div class="info-value">${client.ultimaCompra} (${client.fechaUltimaCompra})</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Días sin Compra</div>
+                    <div class="info-value">${client.diasSinCompra} días</div>
+                </div>
+            `;
+            
+            const historyDiv = document.getElementById('interactionHistory');
+            historyDiv.innerHTML = client.interacciones.map(int => `
+                <div style="padding: 10px; margin: 5px 0; background: #f8f9fa; border-radius: 5px;">
+                    <strong>${int.fecha}</strong> - ${int.tipo}<br>
+                    <small>${int.descripcion}</small>
+                </div>
+            `).join('');
+            
+            document.getElementById('clientDetailPopup').style.display = 'block';
+        }
+        
+        function closeClientDetail() {
+            document.getElementById('clientDetailPopup').style.display = 'none';
+        }
+        
+        function openWhatsApp(telefono) {
+            const message = "Hola! Te contactamos desde Pinturas Clavel. ¿Cómo podemos ayudarte?";
+            window.open(`https://wa.me/591${telefono}?text=${encodeURIComponent(message)}`, '_blank');
+        }
+        
+        function makeCall(telefono) {
+            window.open(`tel:+591${telefono}`);
+        }
+        
+        function showNewContactForm() {
+            alert('Aquí abriríamos el formulario para agregar nuevo cliente');
+        }
+        
+        function exportToExcel() {
+            alert('Exportando datos a Excel...');
+        }
+        
+        function bulkWhatsApp() {
+            alert('Enviando WhatsApp masivo a clientes filtrados...');
+        }
+        
+        // Inicializar tabla
+        renderTable();
+        
+        // Cerrar popup al hacer clic fuera
+        document.getElementById('clientDetailPopup').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeClientDetail();
+            }
+        });
+    </script>
+</body>
+</html>
