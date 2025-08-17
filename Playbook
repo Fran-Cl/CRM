@@ -1,0 +1,788 @@
+import { useMemo, useState, useEffect } from "react";
+// Nota técnica: se eliminó framer-motion para evitar el error
+// "TypeError: (void 0) is not a function" asociado al uso de transition en motion.div.
+// Se reemplazó por un contenedor con aparición suave (FadeIn) sólo con clases.
+
+import { Calendar, Target, PhoneCall, MessageSquare, CheckCircle2, TriangleAlert, ClipboardList, AlarmClock, Rocket, FileText, Wrench, Upload, Download, Table, Filter, Trash2, ClipboardPaste } from "lucide-react";
+import * as Papa from "papaparse";
+import * as XLSX from "xlsx";
+
+// ————————————————————————————————————————
+// Utilitarios de UI
+// ————————————————————————————————————————
+const Pill = ({ children, className = "" }) => (
+  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{children}</span>
+);
+
+const FadeIn = ({ children }) => {
+  const [show, setShow] = useState(false);
+  useEffect(() => setShow(true), []);
+  return (
+    <div className={`transition-all duration-300 ${show ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
+      {children}
+    </div>
+  );
+};
+
+const Card = ({ title, icon: Icon, children, className = "" }) => (
+  <FadeIn>
+    <div className={`rounded-2xl shadow-md p-5 bg-white ${className}`}>
+      <div className="flex items-center gap-2 mb-3">
+        {Icon && <Icon className="w-5 h-5" />}
+        <h3 className="text-lg font-semibold">{title}</h3>
+      </div>
+      {children}
+    </div>
+  </FadeIn>
+);
+
+const Section = ({ title, children, icon: Icon }) => (
+  <section className="mb-8">
+    <div className="flex items-center gap-2 mb-3">
+      {Icon && <Icon className="w-6 h-6" />}
+      <h2 className="text-xl font-bold">{title}</h2>
+    </div>
+    {children}
+  </section>
+);
+
+const Divider = () => <div className="h-px bg-gray-200 my-6" />;
+
+const Chip = ({ color = "gray", children }) => {
+  const colors = {
+    rojo: "bg-red-100 text-red-800",
+    amarillo: "bg-yellow-100 text-yellow-800",
+    verde: "bg-green-100 text-green-800",
+    azul: "bg-blue-100 text-blue-800",
+    gris: "bg-gray-100 text-gray-700",
+  };
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[color] || colors.gris}`}>{children}</span>;
+};
+
+const TimelineItem = ({ title, subtitle, day, accent = "bg-slate-900" }) => (
+  <div className="relative pl-10">
+    <div className={`absolute left-1 top-1.5 h-3 w-3 rounded-full ${accent}`}></div>
+    <div className="text-sm font-semibold">{title}</div>
+    {subtitle && <div className="text-xs text-gray-600">{subtitle}</div>}
+    {day && <div className="text-[11px] text-gray-500 mt-0.5">{day}</div>}
+  </div>
+);
+
+// ————————————————————————————————————————
+// Lógica de datos del piloto
+// ————————————————————————————————————————
+const camposEsperados = [
+  { key: "Codigo", label: "Código de cliente" },
+  { key: "Cliente", label: "Cliente" },
+  { key: "Segmento", label: "Segmento (Núcleo/Desarrollo/Explotación)" },
+  { key: "Color", label: "Color (ROJO/AMARILLO/VERDE)" },
+  { key: "DiasUltimaCompra", label: "Días desde última compra (DÚC)" },
+  { key: "IntervaloEsperado", label: "Intervalo esperado de compra (IEC)" },
+  { key: "IndiceRiesgo", label: "Índice de riesgo (IR)" },
+  { key: "PotencialTicket", label: "Potencial de ticket (Bs.)" },
+  { key: "Promotor", label: "Promotor" },
+  { key: "ProximaAccion", label: "Próxima acción" },
+  { key: "Telefono", label: "Teléfono (con prefijo)" },
+  { key: "MensajeWhatsApp", label: "Mensaje de WhatsApp (opcional)" },
+];
+
+const pesosSegmento = { "Núcleo": 1.2, "Desarrollo": 1.0, "Explotación": 0.9 };
+
+function normalizar(str = "") {
+  return String(str).toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
+}
+
+function autoMapeo(encabezados = []) {
+  const posibles = {
+    Codigo: ["codigo", "cod", "id cliente", "codigo cliente"],
+    Cliente: ["cliente", "razon social", "nombre"],
+    Segmento: ["segmento", "percepcion", "grupo"],
+    Color: ["color", "estado", "semaforo"],
+    DiasUltimaCompra: ["dias desde ultima compra", "duc", "dias_ultima"],
+    IntervaloEsperado: ["intervalo esperado", "iec", "intervalo"],
+    IndiceRiesgo: ["indice riesgo", "ir", "riesgo"],
+    PotencialTicket: ["potencial", "ticket potencial", "tp", "ticket"],
+    Promotor: ["promotor", "vendedor", "agente"],
+    ProximaAccion: ["proxima accion", "siguiente paso", "seguimiento"],
+    Telefono: ["telefono", "cel", "whatsapp"],
+    MensajeWhatsApp: ["mensaje", "plantilla", "whats", "whatsapp"]
+  };
+  const map = {};
+  encabezados.forEach((h) => {
+    const hNorm = normalizar(h);
+    for (const [k, arr] of Object.entries(posibles)) {
+      if (arr.some((alt) => hNorm.includes(alt))) { map[k] = h; break; }
+    }
+  });
+  return map;
+}
+
+function calcularColor(duc, iec) {
+  const d = Number(duc); const i = Number(iec);
+  if (!isFinite(d) || !isFinite(i) || i <= 0) return { color: "SIN DATOS", ir: null };
+  const ir = d / i;
+  if (ir <= 1) return { color: "VERDE", ir };
+  if (ir <= 1.5) return { color: "AMARILLO", ir };
+  return { color: "ROJO", ir };
+}
+
+function buildWaLink(telRaw = "", mensaje = "") {
+  const tel = String(telRaw).replace(/\s|-/g, "").replace(/^\+/, "");
+  if (!tel) return "";
+  const texto = mensaje || "Hola, soy su promotor de Pinturas Clavel. Tengo una propuesta para optimizar su flujo con el Combo [X]. ¿Agendamos?";
+  return `https://wa.me/${tel}?text=${encodeURIComponent(texto)}`;
+}
+
+function descargar(nombre, contenido, tipo = "text/csv;charset=utf-8;") {
+  const blob = new Blob([contenido], { type: tipo });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nombre; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function toCSVMatrix(fields, data) {
+  const escape = (v) => {
+    const s = String(v ?? "");
+    if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const rows = [fields, ...data];
+  return rows.map(r => r.map(escape).join(",")).join("\n");
+}
+
+function DataEditor() {
+  const [filas, setFilas] = useState([]);
+  const [mapeo, setMapeo] = useState({});
+  const [encabezados, setEncabezados] = useState([]);
+  const [mensaje, setMensaje] = useState("");
+  const [mostrarPegar, setMostrarPegar] = useState(false);
+
+  // Carga desde almacenamiento local
+  useEffect(() => {
+    try {
+      const guardado = localStorage.getItem("pc_piloto_datos");
+      if (guardado) {
+        const { filas: f, mapeo: m, encabezados: e } = JSON.parse(guardado);
+        setFilas(f || []); setMapeo(m || {}); setEncabezados(e || []);
+      }
+    } catch {}
+  }, []);
+
+  // Guardado automático
+  useEffect(() => {
+    localStorage.setItem("pc_piloto_datos", JSON.stringify({ filas, mapeo, encabezados }));
+  }, [filas, mapeo, encabezados]);
+
+  function onFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (ext === "csv") {
+      if (!Papa || typeof Papa.parse !== "function") {
+        setMensaje("No se pudo leer CSV: biblioteca no disponible.");
+        return;
+      }
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (res) => {
+          const data = res.data || [];
+          const heads = res.meta.fields || Object.keys(data[0] || {});
+          setEncabezados(heads);
+          setMapeo(autoMapeo(heads));
+          setFilas(data);
+          setMensaje(`Cargadas ${data.length} filas desde CSV.`);
+        },
+      });
+    } else if (ext === "xlsx" || ext === "xls") {
+      if (!XLSX || !XLSX.read) {
+        setMensaje("No se pudo leer Excel: biblioteca no disponible.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const wb = XLSX.read(evt.target.result, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        const heads = Object.keys(data[0] || {});
+        setEncabezados(heads);
+        setMapeo(autoMapeo(heads));
+        setFilas(data);
+        setMensaje(`Cargadas ${data.length} filas desde Excel.`);
+      };
+      reader.readAsBinaryString(file);
+    } else {
+      setMensaje("Formato no soportado. Usa .csv o .xlsx");
+    }
+    e.target.value = "";
+  }
+
+  function pegarDesdePortapapeles(texto) {
+    const lineas = texto.trim().split(/\r?\n/);
+    const delim = texto.includes("\t") ? "\t" : ";";
+    const heads = lineas[0].split(delim).map((s) => s.trim());
+    const data = lineas.slice(1).map((l) => {
+      const celdas = l.split(delim);
+      const obj = {};
+      heads.forEach((h, i) => (obj[h] = (celdas[i] ?? "").trim()));
+      return obj;
+    });
+    setEncabezados(heads);
+    setMapeo(autoMapeo(heads));
+    setFilas(data);
+    setMensaje(`Pegadas ${data.length} filas desde el portapapeles.`);
+  }
+
+  function plantillaCSV() {
+    const heads = [
+      "Código de cliente","Cliente","Segmento","Color","Días desde última compra (DÚC)","Intervalo esperado de compra (IEC)","Índice de riesgo (IR)","Potencial de ticket (Bs.)","Promotor","Próxima acción","Teléfono (con prefijo)","Mensaje de WhatsApp (opcional)"
+    ];
+    const ejemplo = [
+      ["C001","Taller Alfa","Núcleo","ROJO",70,45,"",2500,"Arcelio","Visita jueves 9:30","+5917xxxxxxx","Tengo el Combo A para reducir reproceso ¿lo vemos?"],
+      ["C002","Taller Beta","Desarrollo","AMARILLO",50,45,"",1800,"Arcelio","Llamada D+1","+5916xxxxxxx","Te reservo barniz + catalizador rápido para esta semana ¿confirmo?"]
+    ];
+    const csv = (Papa && typeof Papa.unparse === "function")
+      ? Papa.unparse({ fields: heads, data: ejemplo })
+      : toCSVMatrix(heads, ejemplo);
+    descargar("plantilla_piloto.csv", csv);
+  }
+
+  function exportarCSV() {
+    if (!filas.length) return setMensaje("No hay datos para exportar.");
+    const csv = (Papa && typeof Papa.unparse === "function") ? Papa.unparse(filas) : toCSVMatrix(Object.keys(filas[0] || {}), filas.map(r => Object.values(r)));
+    descargar("piloto_datos_limpios.csv", csv);
+  }
+
+  function limpiarTodo() {
+    setFilas([]); setMapeo({}); setEncabezados([]); setMensaje("Limpieza completa.");
+    localStorage.removeItem("pc_piloto_datos");
+  }
+
+  function recalcularSemaforo() {
+    const nuevas = filas.map((r) => {
+      const duc = Number(r[mapeo.DiasUltimaCompra] ?? r.DiasUltimaCompra);
+      const iec = Number(r[mapeo.IntervaloEsperado] ?? r.IntervaloEsperado);
+      const seg = (r[mapeo.Segmento] ?? r.Segmento ?? "").toString();
+      const { color, ir } = calcularColor(duc, iec);
+      const pot = Number(r[mapeo.PotencialTicket] ?? r.PotencialTicket ?? 0);
+      const peso = pesosSegmento[seg] ?? 1;
+      const prioridad = (isFinite(ir) ? ir : 0) * (isFinite(pot) ? pot : 1) * peso;
+      return {
+        ...r,
+        [mapeo.Color || "Color"]: color,
+        [mapeo.IndiceRiesgo || "Índice de riesgo (IR)"]: isFinite(ir) ? Number(ir.toFixed(2)) : "",
+        Prioridad: Number(prioridad.toFixed(2)),
+      };
+    });
+    setFilas(nuevas);
+    setMensaje("Semáforo y prioridad recalculados.");
+  }
+
+  function generarEnlacesWhatsApp() {
+    const nuevas = filas.map((r) => ({
+      ...r,
+      EnlaceWhatsApp: buildWaLink(r[mapeo.Telefono] ?? r.Telefono, r[mapeo.MensajeWhatsApp] ?? r.MensajeWhatsApp)
+    }));
+    setFilas(nuevas);
+    setMensaje("Se generaron enlaces de WhatsApp (columna EnlaceWhatsApp).");
+  }
+
+  const columnasVisibles = useMemo(() => {
+    const mapeadas = camposEsperados.map(c => mapeo[c.key]).filter(Boolean);
+    const otras = encabezados.filter(h => !mapeadas.includes(h));
+    return [...mapeadas, ...otras];
+  }, [mapeo, encabezados]);
+
+  return (
+    <Card title="Datos del piloto: carga, mapeo y tabla editable" icon={Table}>
+      <div className="flex flex-wrap gap-2 mb-3">
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input type="file" accept=".csv,.xlsx,.xls" onChange={onFile} className="hidden" />
+          <span className="rounded-2xl px-3 py-2 bg-black text-white text-xs inline-flex items-center gap-2"><Upload className="w-4 h-4"/> Subir CSV/Excel</span>
+        </label>
+        <button onClick={plantillaCSV} className="rounded-2xl px-3 py-2 bg-gray-900 text-white text-xs inline-flex items-center gap-2"><Download className="w-4 h-4"/> Descargar plantilla</button>
+        <button onClick={() => setMostrarPegar(!mostrarPegar)} className="rounded-2xl px-3 py-2 bg-gray-100 text-gray-900 text-xs inline-flex items-center gap-2"><ClipboardPaste className="w-4 h-4"/> Pegar desde Excel</button>
+        <button onClick={recalcularSemaforo} className="rounded-2xl px-3 py-2 bg-green-600 text-white text-xs inline-flex items-center gap-2"><Filter className="w-4 h-4"/> Recalcular semáforo</button>
+        <button onClick={generarEnlacesWhatsApp} className="rounded-2xl px-3 py-2 bg-emerald-600 text-white text-xs inline-flex items-center gap-2"><MessageSquare className="w-4 h-4"/> Generar enlaces de WhatsApp</button>
+        <button onClick={exportarCSV} className="rounded-2xl px-3 py-2 bg-blue-600 text-white text-xs inline-flex items-center gap-2"><Download className="w-4 h-4"/> Exportar CSV</button>
+        <button onClick={limpiarTodo} className="rounded-2xl px-3 py-2 bg-red-600 text-white text-xs inline-flex items-center gap-2"><Trash2 className="w-4 h-4"/> Limpiar todo</button>
+      </div>
+
+      {mensaje && <div className="text-xs text-gray-600 mb-2">{mensaje}</div>}
+
+      {!!encabezados.length && (
+        <div className="mb-4 rounded-xl border p-3 bg-gray-50">
+          <div className="font-semibold text-sm mb-2">Mapeo de columnas</div>
+          <div className="grid md:grid-cols-2 gap-2">
+            {camposEsperados.map((c) => (
+              <label key={c.key} className="text-xs flex items-center gap-2">
+                <span className="w-56 text-gray-700">{c.label}</span>
+                <select
+                  className="border rounded-md px-2 py-1 text-xs w-full"
+                  value={mapeo[c.key] || ""}
+                  onChange={(e) => setMapeo((m) => ({ ...m, [c.key]: e.target.value }))}
+                >
+                  <option value="">— Sin asignar —</option>
+                  {encabezados.map((h) => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {mostrarPegar && (
+        <div className="mb-4">
+          <textarea
+            rows={6}
+            placeholder={"Pega aquí desde Excel (encabezados en la primera fila). Acepta tabulaciones o punto y coma."}
+            className="w-full border rounded-xl p-2 text-sm"
+            onPaste={(e) => { setTimeout(() => pegarDesdePortapapeles(e.target.value), 10); }}
+          />
+          <div className="text-[11px] text-gray-500 mt-1">Sugerencia: copia columnas con encabezados claros (por ejemplo: Cliente, Segmento, Días desde última compra, Intervalo esperado, Teléfono).</div>
+        </div>
+      )}
+
+      {!!filas.length && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-600">
+                {columnasVisibles.map((h) => (
+                  <th key={h} className="py-2 pr-3">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((row, rIdx) => (
+                <tr key={rIdx} className="border-t">
+                  {columnasVisibles.map((h) => (
+                    <td key={h} className="py-1 pr-3">
+                      <input
+                        className="w-full border rounded-md px-2 py-1"
+                        value={row[h] ?? ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFilas((prev) => {
+                            const copia = [...prev];
+                            copia[rIdx] = { ...copia[rIdx], [h]: val };
+                            return copia;
+                          });
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!!filas.length && (
+        <div className="grid md:grid-cols-3 gap-3 mt-4">
+          {[
+            { k: "ROJO", c: "bg-red-100 text-red-800" },
+            { k: "AMARILLO", c: "bg-yellow-100 text-yellow-800" },
+            { k: "VERDE", c: "bg-green-100 text-green-800" },
+          ].map((it) => {
+            const n = filas.filter((r) => (r[mapeo.Color] ?? r.Color) === it.k).length;
+            return (
+              <div key={it.k} className={`rounded-xl p-3 text-sm ${it.c}`}>
+                <b>{it.k}</b>: {n} clientes
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ————————————————————————————————————————
+// Datos del plan (en español, sin abreviaturas en inglés)
+// ————————————————————————————————————————
+const objetivos = [
+  { label: "Reactivación ROJO", meta: "+12 %" },
+  { label: "Conversión AMARILLO dentro del nivel de servicio", meta: "≥ 25 %" },
+  { label: "Uptake de combos estratégicos", meta: "+15 %" },
+  { label: "Cumplimiento de nivel de servicio", meta: "≥ 90 %" },
+  { label: "Calidad de registro en SGC", meta: "≥ 95 %" },
+  { label: "Ticket promedio por segmento", meta: "↑ sostenido" },
+];
+
+const calendarioCapacitacion = [
+  {
+    semana: 1,
+    sesiones: [
+      {
+        dia: "Día 1",
+        titulo: "Semáforo y prioridad",
+        puntos: [
+          "Días desde última compra, intervalo esperado e índice de riesgo",
+          "Nivel de servicio por color y segmento",
+          "Armar cola real en el SGC (sucursal piloto)",
+        ],
+      },
+      {
+        dia: "Día 2",
+        titulo: "Productos, rentabilidad y combos",
+        puntos: [
+          "Líneas clave y retorno de margen sobre inventario (RMII)",
+          "Combos críticos y relevantes con límites de descuento",
+          "Diseño de 3 ofertas por segmento",
+        ],
+      },
+      {
+        dia: "Día 3",
+        titulo: "Guiones por segmento y color",
+        puntos: [
+          "Apertura → diagnóstico → beneficio → oferta → cierre",
+          "Juegos de roles: ROJO Desarrollo, AMARILLO Núcleo, ROJO Núcleo",
+          "Registro correcto en el SGC",
+        ],
+      },
+    ],
+  },
+  {
+    semana: 2,
+    sesiones: [
+      {
+        dia: "Día 4",
+        titulo: "WhatsApp: plantillas, cadencias y prueba A/B",
+        puntos: [
+          "Plantillas por objetivo (reactivar, recompra, postventa)",
+          "Cadencias D+1, D+7 y D+30",
+          "Etiquetas de motivo de no contacto",
+        ],
+      },
+      {
+        dia: "Día 5",
+        titulo: "SGC en batalla",
+        puntos: [
+          "Crear/cerrar tareas y reprogramar",
+          "Checklist de calidad (campos obligatorios)",
+          "Simulación con 10 casos reales",
+        ],
+      },
+      {
+        dia: "Día 6",
+        titulo: "Certificación",
+        puntos: [
+          "Examen teórico (15 preguntas)",
+          "3 juegos de roles",
+          "Registro en el SGC en vivo (aprobación ≥ 85 %)",
+        ],
+      },
+    ],
+  },
+];
+
+const tablaNS = [
+  { color: "ROJO", segmento: "Núcleo", contacto: "≤ 48 h", visita: "≤ 7 días" },
+  { color: "ROJO", segmento: "Desarrollo", contacto: "≤ 72 h", visita: "≤ 10 días" },
+  { color: "ROJO", segmento: "Explotación", contacto: "≤ 5 días", visita: "Selectiva por potencial" },
+  { color: "AMARILLO", segmento: "Todos", contacto: "≤ 7 días", visita: "Seguimiento semanal" },
+  { color: "VERDE", segmento: "Todos", contacto: "Toque cada 30 días", visita: "Postventa/venta cruzada" },
+];
+
+const guiones = [
+  {
+    titulo: "ROJO – Desarrollo (reactivación)",
+    texto: "Noté que tu consumo de [línea] bajó hace ~3 meses. Talleres similares redujeron reproceso con el Combo [X] (masilla + catalizador + thinner). Puedo dejarte el pack con descuento preferencial esta semana y una demostración breve. ¿Te acomoda jueves 9:30? (Registrar próxima acción)",
+  },
+  {
+    titulo: "AMARILLO – Núcleo (recompra)",
+    texto: "Tu ciclo típico es ~45 días; hoy estamos en el día 50. Tengo el Combo [B] (barniz + catalizador rápido) con entrega en 24 horas. ¿Agendamos?",
+  },
+  {
+    titulo: "VERDE – Núcleo (postventa y venta cruzada)",
+    texto: "¿Cómo te fue con el último acabado? Varios talleres suman coladores + cinta premium y ganan tiempo. Te reservo un paquete de prueba con precio de cliente núcleo. ¿Te envío el detalle?",
+  },
+];
+
+const incentivos = [
+  "Bono por reactivación ROJO (compra registrada)",
+  "Bono por nivel de servicio ≥ 90 % semanal",
+  "Bono por combos de alto RMII (objetivo superado)",
+  "Guardarraíl: respetar límites de descuento por combo",
+];
+
+const postventa = [
+  { hito: "D+2", detalle: "Verificación de uso + consejos por WhatsApp" },
+  { hito: "D+15", detalle: "Chequeo de consumibles críticos + oferta de paquete" },
+  { hito: "D+30", detalle: "Invitación a clínica o Día Azul (demostración breve)" },
+];
+
+const criteriosEscala = [
+  "Reactivación ROJO ≥ +12 %",
+  "Conversión AMARILLO ≥ 25 %",
+  "Nivel de servicio ≥ 90 %",
+  "Calidad de registro en SGC ≥ 95 %",
+  "Uptake de combos ≥ +15 % vs. línea base",
+];
+
+// ————————————————————————————————————————
+// Pruebas integradas (sanidad)
+// ————————————————————————————————————————
+function TestSuite() {
+  const casos = useMemo(() => {
+    const resultados = [];
+    // calcularColor
+    resultados.push({ nombre: "calcularColor VERDE (50/50)", ok: calcularColor(50, 50).color === "VERDE" });
+    resultados.push({ nombre: "calcularColor AMARILLO (60/45)", ok: calcularColor(60, 45).color === "AMARILLO" });
+    resultados.push({ nombre: "calcularColor ROJO (80/45)", ok: calcularColor(80, 45).color === "ROJO" });
+    resultados.push({ nombre: "calcularColor SIN DATOS", ok: calcularColor("", 0).color === "SIN DATOS" });
+    // autoMapeo
+    const heads = ["cliente", "segmento", "color", "telefono"];
+    const m = autoMapeo(heads);
+    resultados.push({ nombre: "autoMapeo detecta Cliente", ok: !!m.Cliente });
+    resultados.push({ nombre: "autoMapeo detecta Segmento", ok: !!m.Segmento });
+    resultados.push({ nombre: "autoMapeo detecta Color", ok: !!m.Color });
+    resultados.push({ nombre: "autoMapeo detecta Teléfono", ok: !!m.Telefono });
+    // buildWaLink
+    const link = buildWaLink("+59171234567", "Hola");
+    resultados.push({ nombre: "buildWaLink genera enlace", ok: link.includes("wa.me/59171234567") && link.includes("Hola") });
+    return resultados;
+  }, []);
+
+  const todoOk = casos.every(c => c.ok);
+  return (
+    <Card title="Pruebas integradas (sanidad)" icon={CheckCircle2}>
+      <div className="text-sm mb-2">Estado global: {todoOk ? <span className="text-green-700 font-semibold">OK</span> : <span className="text-red-700 font-semibold">Con fallos</span>}</div>
+      <ul className="list-disc pl-5 text-sm space-y-1">
+        {casos.map((c, i) => (
+          <li key={i} className={c.ok ? "text-green-700" : "text-red-700"}>{c.ok ? "✔" : "✘"} {c.nombre}</li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+export default function PlaybookPiloto() {
+  const hoy = useMemo(() => new Date().toLocaleDateString(), []);
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <header className="mb-6">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-extrabold">Playbook visual del piloto — Promotores</h1>
+              <p className="text-sm text-gray-600">Sucursal piloto: la más rentable • Objetivo: reactivar y elevar ticket promedio con foco en ROJO y AMARILLO</p>
+            </div>
+            <button onClick={() => window.print()} className="rounded-2xl px-4 py-2 shadow bg-black text-white text-sm">Imprimir plan</button>
+          </div>
+        </header>
+
+        {/* Datos y pruebas */}
+        <Section title="Datos del piloto (carga, mapeo y tabla editable)" icon={Table}>
+          <DataEditor />
+        </Section>
+        <TestSuite />
+
+        <Section title="Objetivos del piloto e indicadores de control" icon={Target}>
+          <div className="grid md:grid-cols-3 gap-4">
+            {objetivos.map((o, i) => (
+              <Card key={i} title={o.label} icon={CheckCircle2}>
+                <div className="text-2xl font-bold">{o.meta}</div>
+                <div className="text-xs text-gray-600 mt-1">Meta de referencia para la decisión de escalar</div>
+              </Card>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Calendario de capacitación (2 semanas)" icon={Calendar}>
+          <div className="grid md:grid-cols-2 gap-6">
+            {calendarioCapacitacion.map((sem) => (
+              <Card key={sem.semana} title={`Semana ${sem.semana}`} icon={FileText}>
+                <div className="space-y-4">
+                  {sem.sesiones.map((s, idx) => (
+                    <div key={idx} className="rounded-xl border p-3 bg-gray-50">
+                      <div className="flex items-center justify-between">
+                        <div className="font-semibold">{s.dia} — {s.titulo}</div>
+                        <Pill className="bg-indigo-100 text-indigo-800">2 h</Pill>
+                      </div>
+                      <ul className="list-disc pl-5 text-sm mt-2 space-y-1">
+                        {s.puntos.map((p, i) => <li key={i}>{p}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Reglas del semáforo y nivel de servicio" icon={AlarmClock}>
+          <div className="grid md:grid-cols-2 gap-6">
+            <Card title="Tabla de nivel de servicio" icon={AlarmClock}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-600">
+                      <th className="py-2">Color</th>
+                      <th>Segmento</th>
+                      <th>Contacto máximo</th>
+                      <th>Visita máxima</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tablaNS.map((r, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="py-2">
+                          {r.color === "ROJO" && <Chip color="rojo">ROJO</Chip>}
+                          {r.color === "AMARILLO" && <Chip color="amarillo">AMARILLO</Chip>}
+                          {r.color === "VERDE" && <Chip color="verde">VERDE</Chip>}
+                        </td>
+                        <td>{r.segmento}</td>
+                        <td>{r.contacto}</td>
+                        <td>{r.visita}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Divider />
+              <div className="text-xs text-gray-600">Prioridad de cola = Índice de riesgo × Potencial de ticket × Peso del segmento (Núcleo 1,20; Desarrollo 1,00; Explotación 0,90)</div>
+            </Card>
+
+            <Card title="Rutina diaria del promotor" icon={ClipboardList}>
+              <ol className="list-decimal pl-5 text-sm space-y-2">
+                <li><b>Plan (15 min):</b> abrir SGC → filtrar ROJO/AMARILLO y promotor → ordenar por nivel de servicio e índice de riesgo.</li>
+                <li><b>Bloques de contacto:</b> mañana 8–10 llamadas ROJO Núcleo (si no contesta: WhatsApp D+1); tarde 6–8 llamadas AMARILLO; planificar 4–6 visitas por semana.</li>
+                <li><b>Registro obligatorio:</b> tipo de contacto, objetivo, resultado/objeción, próxima acción con fecha, nivel de servicio restante.</li>
+                <li><b>Regla 60/30/10:</b> 60 % ROJO, 30 % AMARILLO, 10 % VERDE.</li>
+              </ol>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="WhatsApp: plantillas, cadencias y prueba A/B" icon={MessageSquare}>
+          <div className="grid md:grid-cols-2 gap-6">
+            <Card title="Plantillas por objetivo" icon={MessageSquare}>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <Pill className="bg-red-100 text-red-800">Reactivación ROJO</Pill>
+                  <ul className="list-disc pl-5 mt-1">
+                    <li><b>R1-A:</b> saludo + necesidad detectada + Combo [X] + propuesta de agenda.</li>
+                    <li><b>R1-B:</b> prueba social + Combo [X] + beneficio + propuesta de agenda.</li>
+                  </ul>
+                </div>
+                <div>
+                  <Pill className="bg-yellow-100 text-yellow-800">Empuje AMARILLO</Pill>
+                  <ul className="list-disc pl-5 mt-1">
+                    <li><b>A1-A:</b> evitar freno de ritmo + entrega 24 h + mejora por volumen.</li>
+                    <li><b>A1-B:</b> reserva de pack [producto + complemento] para la semana.</li>
+                  </ul>
+                </div>
+                <div>
+                  <Pill className="bg-green-100 text-green-800">Postventa VERDE</Pill>
+                  <ul className="list-disc pl-5 mt-1">
+                    <li><b>P1-A:</b> verificación de uso + consejos + paquete de consumibles.</li>
+                    <li><b>P1-B:</b> agenda de clínicas (demostración de 20 minutos).</li>
+                  </ul>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Cadencias y criterios de prueba" icon={Rocket}>
+              <div className="space-y-3">
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="font-semibold text-sm mb-1">Cadencias</div>
+                  <TimelineItem title="No contesta → reintento D+1 (llamada)" />
+                  <TimelineItem title="WhatsApp D+2" />
+                  <TimelineItem title="Segundo reintento D+7" />
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="font-semibold text-sm mb-1">Prueba A/B</div>
+                  <ul className="list-disc pl-5 text-sm space-y-1">
+                    <li>Una sola variable (por ejemplo, primera línea o uso de prueba social).</li>
+                    <li>Tamaño mínimo por versión: n ≥ 30 contactos.</li>
+                    <li>Indicador de éxito: tasa de respuesta + tasa de visita agendada.</li>
+                    <li>Regla de parada: mantener versión ganadora ≥ 10 puntos porcentuales durante 5 días.</li>
+                  </ul>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="Guiones de contacto (moldes rápidos)" icon={PhoneCall}>
+          <div className="grid md:grid-cols-3 gap-4">
+            {guiones.map((g, i) => (
+              <Card key={i} title={g.titulo} icon={PhoneCall}>
+                <p className="text-sm leading-relaxed">{g.texto}</p>
+              </Card>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Incentivos y guardarraíles" icon={Wrench}>
+          <Card title="Esquema de incentivos" icon={Wrench}>
+            <ul className="list-disc pl-5 text-sm space-y-1">
+              {incentivos.map((i, idx) => <li key={idx}>{i}</li>)}
+            </ul>
+          </Card>
+        </Section>
+
+        <Section title="Postventa mínima viable y Días Azules" icon={Calendar}>
+          <div className="grid md:grid-cols-2 gap-6">
+            <Card title="Ruta de postventa" icon={Calendar}>
+              <div className="space-y-2">
+                {postventa.map((p, i) => (
+                  <TimelineItem key={i} title={`${p.hito} — ${p.detalle}`} />
+                ))}
+              </div>
+            </Card>
+            <Card title="Clínicas / Días Azules" icon={Calendar}>
+              <ul className="list-disc pl-5 text-sm space-y-1">
+                <li>Mini–clínica de 1 hora con 5 clientes Núcleo (demostración de combos prioritarios).</li>
+                <li>Usar el calendario por sucursal para fijar fechas y compromisos.</li>
+                <li>Registrar asistencia y seguimiento con próxima acción en SGC.</li>
+              </ul>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="Gobierno del piloto y riesgos" icon={TriangleAlert}>
+          <div className="grid md:grid-cols-2 gap-6">
+            <Card title="Rituales de control" icon={ClipboardList}>
+              <ul className="list-disc pl-5 text-sm space-y-1">
+                <li><b>Diario (15 min):</b> revisar indicadores del día, niveles de servicio vencidos, objeciones principales.</li>
+                <li><b>Semanal (30 min):</b> reactivación, uptake de combos, calidad SGC, resultados de A/B.</li>
+                <li><b>Auditoría:</b> muestra de 10 registros por promotor; calidad ≥ 95 %.</li>
+              </ul>
+            </Card>
+            <Card title="Riesgos y mitigaciones" icon={TriangleAlert}>
+              <ul className="list-disc pl-5 text-sm space-y-1">
+                <li>Base sin teléfono: depuración previa de 50 clientes prioritarios.</li>
+                <li>Sobredescuento: límites por combo y aprobación rápida.</li>
+                <li>Agenda saturada: aplicar regla 60/30/10 y bloques duros.</li>
+                <li>Ética de contacto: máximo 3 intentos por semana por cliente; registrar motivo.</li>
+              </ul>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="Criterios para escalar a otras sucursales" icon={Rocket}>
+          <div className="grid md:grid-cols-3 gap-4">
+            {criteriosEscala.map((c, i) => (
+              <Card key={i} title={`Criterio ${i + 1}`} icon={CheckCircle2}>
+                <div className="text-sm">{c}</div>
+              </Card>
+            ))}
+          </div>
+        </Section>
+
+        <footer className="mt-10 text-xs text-gray-500">
+          Última revisión: {hoy}. • Este playbook se alinea a tu SGC (semáforo, filtros por color/segmento/promotor, ventana de detalle e historial) y al marco práctico (combos, clínicas y límites de descuento).
+        </footer>
+      </div>
+    </div>
+  );
+}
